@@ -1,0 +1,21 @@
+{
+  "wallpaper": true,
+  "wallpaper_rotation_minutes": 10,
+  "wallpaper_moods": {
+    "morning": ["02-day.jpg"],
+    "evening": ["02-day.jpg"],
+    "night": ["01-night.jpg"]
+  },
+  "wallpaper_dim": 30,
+  "wallpaper_true_color": true,
+  "dock_opacity": 70,
+  "ambient_glow": false,
+  "tile_menu": true,
+  "hidden_apps": [
+    "com.google.android.youtube.tvunplugged",
+    "com.tubitv",
+    "com.instagram.airwave",
+    "com.haystack.android",
+    "com.neilturner.aerialviews"
+  ]
+}

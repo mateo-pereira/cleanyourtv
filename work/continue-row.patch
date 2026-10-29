@@ -1,0 +1,1062 @@
+diff --git a/launcher/app/src/main/AndroidManifest.xml b/launcher/app/src/main/AndroidManifest.xml
+index 701b5feb..9db9db9c 100644
+--- a/launcher/app/src/main/AndroidManifest.xml
++++ b/launcher/app/src/main/AndroidManifest.xml
+@@ -21,10 +21,16 @@
+     <!-- YaOS (Yandex TV OS): HDMI, AV and the tuner all play in com.yandex.tv.live, whose activities require
+          this permission (protection level normal, so it is granted at install). Ignored on other TVs. -->
+     <uses-permission android:name="yandex.tv.permission.ACCESS_TV_SOURCE" />
++    <!-- continue_row (personal branch): reads the system's Continue watching list (Watch Next). A runtime
++         permission, granted with pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS; without it
++         the row stays hidden. -->
++    <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
+ 
+     <!-- Android 11+ package visibility: lets the launcher list the TV apps it shows as tiles, and the
+          apps that declare a module card (docs/specs/card.md). -->
+     <queries>
++        <!-- continue_row: the TV provider that holds the Watch Next list. -->
++        <provider android:authorities="android.media.tv" />
+         <!-- The standard settings handlers, so package visibility doesn't hide them and send the pills to a vendor fallback by mistake. -->
+         <intent>
+             <action android:name="android.settings.SETTINGS" />
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java b/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
+index 4cf0143b..41bc9374 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
+@@ -203,6 +203,11 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+     private final boolean animations;
+     private final boolean advancedEffects;
+     private final boolean showLibrary;
++    /**
++     * reorder_corner_button (mateo-tv): the footer slot after the last row holds a small Rearrange apps pill at the
++     * right instead of the App library pill. Only when the library pill is off, so the two never share the slot.
++     */
++    private final boolean reorderFooter;
+     /** Packages with a leanback entry at the last reload(): their tiles launch with the leanback category. */
+     private Set<String> leanbackPackages = new HashSet<>();
+     private final boolean showHomeSettings;
+@@ -234,6 +239,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+         this.advancedEffects = cfg.animations && cfg.advancedEffects;
+         this.showHomeSettings = cfg.showHomeSettingsShortcut;
+         this.showLibrary = LibraryApps.showPill(cfg.appLibrary, cfg.libraryButton, cfg.showLibraryPill);
++        this.reorderFooter = !showLibrary && ctx.getResources().getBoolean(R.bool.reorder_corner_button);
+         this.reducedMotion = cfg.reducedMotion;
+         this.focusOvershoot = cfg.focusOvershoot;
+         this.rowsBelowDock = cfg.rowsBelowDock;
+@@ -401,6 +407,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+         if (viewType == 1) {
+             View row = LayoutInflater.from(ctx).inflate(R.layout.row_app_library, parent, false);
+             View button = row.findViewById(R.id.btnLibrary);
++            if (reorderFooter) styleReorderPill((TextView) button);
+             button.setOnClickListener(v -> listener.onLibraryRequested());
+             button.setOnFocusChangeListener((v, focused) -> { if (focused) listener.onLibraryFocused(); });
+             button.setOnKeyListener((v, key, event) -> {
+@@ -562,12 +569,29 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+ 
+     @Override
+     public int getItemCount() {
+-        return items.size() + (showLibrary ? 1 : 0);
++        return items.size() + (showLibrary || reorderFooter ? 1 : 0);
++    }
++
++    /** The footer slot holds the Rearrange apps pill (reorder_corner_button) rather than the App library pill. */
++    boolean isReorderFooter() { return reorderFooter; }
++
++    /** The library pill's view, made into a smaller Rearrange apps pill in the bottom right corner. */
++    private void styleReorderPill(TextView pill) {
++        float density = ctx.getResources().getDisplayMetrics().density;
++        pill.setText(R.string.rearrange_apps);
++        pill.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_swap_vert, 0, 0, 0);
++        pill.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
++        pill.setPadding(Math.round(14 * density), Math.round(7 * density), Math.round(16 * density), Math.round(7 * density));
++        pill.setCompoundDrawablePadding(Math.round(6 * density));
++        android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) pill.getLayoutParams();
++        lp.gravity = android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL;
++        lp.setMarginEnd(Math.round(14 * density));
++        pill.setLayoutParams(lp);
+     }
+ 
+     int appCount() { return items.size(); }
+ 
+-    boolean isLibraryAt(int position) { return showLibrary && position == items.size(); }
++    boolean isLibraryAt(int position) { return (showLibrary || reorderFooter) && position == items.size(); }
+ 
+     @Override public int getItemViewType(int position) { return isLibraryAt(position) ? 1 : 0; }
+ 
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/ContinueRow.java b/launcher/app/src/main/java/com/gathin/tvhome/ContinueRow.java
+new file mode 100644
+index 00000000..d69b7860
+--- /dev/null
++++ b/launcher/app/src/main/java/com/gathin/tvhome/ContinueRow.java
+@@ -0,0 +1,514 @@
++package com.gathin.tvhome;
++
++import android.content.ActivityNotFoundException;
++import android.content.Context;
++import android.content.Intent;
++import android.content.pm.PackageManager;
++import android.content.pm.ResolveInfo;
++import android.database.Cursor;
++import android.graphics.Typeface;
++import android.graphics.drawable.Drawable;
++import android.graphics.drawable.GradientDrawable;
++import android.net.Uri;
++import android.os.Handler;
++import android.os.Looper;
++import android.text.TextUtils;
++import android.util.Log;
++import android.util.TypedValue;
++import android.view.Gravity;
++import android.view.KeyEvent;
++import android.view.View;
++import android.view.ViewGroup;
++import android.widget.FrameLayout;
++import android.widget.ImageView;
++import android.widget.TextView;
++
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++
++/**
++ * A "Continue watching" row in the dock's place (continue_row): while it has focus it sits where the dock rests and
++ * the host pushes the dock down by dockShift() so only its top peeks in; Down hands focus back to the dock, which
++ * slides up again while the row fades out. Up to SLOTS tiles, read from the system's Watch Next
++ * list (TvContract.WatchNextPrograms), newest first, one per show. Slots without a show stay as empty outlines
++ * and take no focus. The tiles show the app's banner, the show and the episode, with no poster art: the posters
++ * are web links and the launcher has no network access. Needs READ_TV_LISTINGS, granted from the shell
++ * (pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS); without it the row stays hidden.
++ * See docs/watch-next.md for what the provider returns.
++ */
++final class ContinueRow {
++    static final int SLOTS = 5;
++    private static final String TAG = "TvHomeContinue";
++    private static final Uri WATCH_NEXT = Uri.parse("content://android.media.tv/watch_next_program");
++    private static final int TYPE_WATCHLIST = 3;
++
++    interface Host {
++        /** A tile took focus: move the highlight onto it. */
++        void onContinueFocused(View card, int slot);
++        /** Down from the tile in this column: back to the dock. */
++        void onContinueDown(int column);
++        /** Up from the row: to the top bar. */
++        void onContinueUp();
++        /** The list was read: the host may move focus to the row now. */
++        void onContinueReady();
++    }
++
++    static final class Item {
++        final String pkg, title, subtitle, intentUri;
++        final float progress;   // 0..1, or -1 when unknown
++        final long engaged;
++        Drawable logo;
++
++        Item(String pkg, String title, String subtitle, String intentUri, float progress, long engaged) {
++            this.pkg = pkg;
++            this.title = title;
++            this.subtitle = subtitle;
++            this.intentUri = intentUri;
++            this.progress = progress;
++            this.engaged = engaged;
++        }
++    }
++
++    private final Context ctx;
++    private final float density;
++    private final Host host;
++    private final FrameLayout container;
++    private final TextView header;
++    private final FrameLayout[] tiles = new FrameLayout[SLOTS];
++    private final List<Item> items = new ArrayList<>();
++    private final Handler main = new Handler(Looper.getMainLooper());
++    private final Typeface medium, regular;
++    private int tileW, tileH;
++    private float focusScale = 1.1f;
++    private boolean placed, shown, wanted;
++    private boolean animations = true, advancedEffects, reducedMotion, overshoot = true;
++    private volatile boolean loading;
++
++    ContinueRow(Context ctx, ViewGroup root, int index, float density, Host host) {
++        this.ctx = ctx;
++        this.density = density;
++        this.host = host;
++        medium = ctx.getResources().getFont(R.font.outfit_medium);
++        regular = ctx.getResources().getFont(R.font.outfit_regular);
++        container = new FrameLayout(ctx);
++        container.setClipChildren(false);
++        container.setClipToPadding(false);
++        // Room under the tiles for the focused one's zoom: the root clips the container to its own bounds.
++        container.setPadding(0, 0, 0, Math.round(24 * density));
++        // Invisible rather than gone while hidden: it stays laid out, so the glass can be fitted to a tile the
++        // moment focus arrives.
++        container.setAlpha(0f);
++        container.setVisibility(View.INVISIBLE);
++        header = new TextView(ctx);
++        header.setText(R.string.continue_watching);
++        header.setTextColor(0xB3FFFFFF);
++        header.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
++        header.setTypeface(medium);
++        header.setLetterSpacing(0.22f);
++        // Single line first: setSingleLine replaces the transformation that setAllCaps installs.
++        header.setSingleLine(true);
++        header.setAllCaps(true);
++        container.addView(header, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
++                ViewGroup.LayoutParams.WRAP_CONTENT));
++        for (int i = 0; i < SLOTS; i++) {
++            tiles[i] = makeTile(i);
++            container.addView(tiles[i]);
++        }
++        root.addView(container, index, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
++                ViewGroup.LayoutParams.WRAP_CONTENT));
++    }
++
++    /** The same motion settings as the app tiles (AppAdapter), so Left and Right feel the same on both rows. */
++    void setMotion(boolean animations, boolean advancedEffects, boolean reducedMotion, boolean overshoot) {
++        this.animations = animations;
++        this.advancedEffects = advancedEffects;
++        this.reducedMotion = reducedMotion;
++        this.overshoot = overshoot;
++        focusScale = !animations ? 1f : advancedEffects ? 1.12f : 1.10f;
++    }
++
++    int count() {
++        return items.size();
++    }
++
++    boolean hasFocus() {
++        return container.hasFocus();
++    }
++
++    /** How far the dock moves down while the row is in its place: the row's height and a gap. */
++    int dockShift() {
++        return tileH + Math.round(28 * density);
++    }
++
++    boolean placed() {
++        return placed;
++    }
++
++    /**
++     * Lines the tiles up with the dock: the first dock card's left edge and width, the column pitch, and the dock
++     * cards' top at rest, which the tiles take over while the row has focus.
++     */
++    void place(int firstLeft, int pitch, int cardW, float dockTop) {
++        // Margins, not translations: the glass is placed from layout positions (offsetDescendantRectToMyCoords),
++        // which ignore a translation.
++        int h = Math.round(cardW * 0.62f);
++        int headerH = Math.round(30 * density);
++        boolean resized = cardW != tileW || h != tileH;
++        tileW = cardW;
++        tileH = h;
++        for (int i = 0; i < SLOTS; i++) {
++            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) tiles[i].getLayoutParams();
++            int left = firstLeft + i * pitch;
++            if (resized || lp.width != tileW || lp.leftMargin != left || lp.topMargin != headerH) {
++                lp = new FrameLayout.LayoutParams(tileW, tileH);
++                lp.topMargin = headerH;
++                lp.leftMargin = left;
++                tiles[i].setLayoutParams(lp);
++            }
++            if (resized) styleTile(i);
++        }
++        FrameLayout.LayoutParams hp = (FrameLayout.LayoutParams) header.getLayoutParams();
++        int headerLeft = firstLeft + Math.round(4 * density);
++        if (hp.leftMargin != headerLeft) {
++            hp.leftMargin = headerLeft;
++            header.setLayoutParams(hp);
++        }
++        FrameLayout.LayoutParams cp = (FrameLayout.LayoutParams) container.getLayoutParams();
++        int top = Math.round(dockTop) - headerH;
++        if (cp.topMargin != top) {
++            cp.topMargin = top;
++            container.setLayoutParams(cp);
++        }
++        placed = true;
++    }
++
++    /** Shows the row in the dock's place, once it is placed and has a show. */
++    void show() {
++        wanted = true;
++        update();
++    }
++
++    /** The dock has focus again, or the grid scrolled: fade the row out. */
++    void hide() {
++        wanted = false;
++        update();
++    }
++
++    private void update() {
++        boolean visible = wanted && placed && !items.isEmpty();
++        if (visible == shown) return;
++        shown = visible;
++        container.animate().cancel();
++        if (visible) {
++            container.setVisibility(View.VISIBLE);
++            if (animations) container.animate().alpha(1f).setDuration(220).start();
++            else container.setAlpha(1f);
++        } else if (animations) {
++            container.animate().alpha(0f).setDuration(160)
++                    .withEndAction(() -> { if (!shown) container.setVisibility(View.INVISIBLE); }).start();
++        } else {
++            container.setAlpha(0f);
++            container.setVisibility(View.INVISIBLE);
++        }
++    }
++
++    /** Focus the tile in this column, or the last show when the column is empty. False when there is none. */
++    boolean focus(int column) {
++        if (!placed || items.isEmpty()) return false;
++        show();
++        return tiles[Math.max(0, Math.min(column, items.size() - 1))].requestFocus();
++    }
++
++    /** Reads the Watch Next list off the main thread, then fills the tiles. */
++    void refresh(Set<String> hidden) {
++        if (loading) return;
++        loading = true;
++        new Thread(() -> {
++            List<Item> fresh = query(ctx, hidden);
++            PackageManager pm = ctx.getPackageManager();
++            for (Item it : fresh) {
++                try {
++                    Drawable d = pm.getApplicationBanner(it.pkg);
++                    it.logo = d != null ? d : pm.getApplicationIcon(it.pkg);
++                } catch (PackageManager.NameNotFoundException ignored) {
++                }
++            }
++            main.post(() -> {
++                loading = false;
++                setItems(fresh);
++            });
++        }, "continue-row").start();
++    }
++
++    private void setItems(List<Item> fresh) {
++        boolean hadFocus = container.hasFocus();
++        int focusedSlot = -1;
++        for (int i = 0; i < SLOTS; i++) if (tiles[i].isFocused()) focusedSlot = i;
++        items.clear();
++        items.addAll(fresh);
++        for (int i = 0; i < SLOTS; i++) bind(i);
++        if (items.isEmpty() && hadFocus) host.onContinueDown(0);
++        else if (hadFocus && focusedSlot >= items.size()) tiles[items.size() - 1].requestFocus();
++        update();
++        if (!items.isEmpty()) host.onContinueReady();
++    }
++
++    static List<Item> query(Context ctx, Set<String> hidden) {
++        List<Item> out = new ArrayList<>();
++        PackageManager pm = ctx.getPackageManager();
++        Map<String, Item> newest = new HashMap<>();
++        // No selection: without ACCESS_ALL_EPG_DATA a selection is refused (docs/watch-next.md).
++        try (Cursor c = ctx.getContentResolver().query(WATCH_NEXT, null, null, null, null)) {
++            if (c == null) return out;
++            while (c.moveToNext()) {
++                String pkg = str(c, "package_name");
++                String title = str(c, "title");
++                if (pkg.isEmpty() || title.isEmpty() || hidden.contains(pkg)) continue;
++                if ("0".equals(str(c, "browsable"))) continue;
++                if (num(c, "watch_next_type", -1) == TYPE_WATCHLIST) continue;
++                if (pm.getLeanbackLaunchIntentForPackage(pkg) == null) continue;
++                long pos = num(c, "last_playback_position_millis", -1);
++                long dur = num(c, "duration_millis", -1);
++                float progress = pos > 0 && dur > 0 ? Math.min(1f, pos / (float) dur) : -1f;
++                if (progress >= 0.97f) continue;   // finished: the row would only point at the credits
++                long engaged = num(c, "last_engagement_time_utc_millis", 0);
++                Item it = new Item(pkg, title, subtitle(c, pos, dur), str(c, "intent_uri"), progress, engaged);
++                String key = pkg + "\n" + title;
++                Item old = newest.get(key);
++                if (old == null || engaged > old.engaged) newest.put(key, it);
++            }
++        } catch (SecurityException e) {
++            Log.i(TAG, "no READ_TV_LISTINGS: pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS");
++            return out;
++        } catch (RuntimeException e) {
++            Log.w(TAG, "watch next query failed", e);
++            return out;
++        }
++        out.addAll(newest.values());
++        out.sort((a, b) -> Long.compare(b.engaged, a.engaged));
++        return out.size() > SLOTS ? new ArrayList<>(out.subList(0, SLOTS)) : out;
++    }
++
++    private static String subtitle(Cursor c, long pos, long dur) {
++        List<String> parts = new ArrayList<>();
++        String season = str(c, "season_display_number");
++        String episode = str(c, "episode_display_number");
++        if (!season.isEmpty()) parts.add("S" + season);
++        if (!episode.isEmpty()) parts.add("E" + episode);
++        String episodeTitle = str(c, "episode_title");
++        if (!episodeTitle.isEmpty()) parts.add(episodeTitle);
++        if (pos > 0 && dur > pos) {
++            long min = Math.max(1, Math.round((dur - pos) / 60000.0));
++            parts.add(min + " min left");
++        }
++        return TextUtils.join(" · ", parts);
++    }
++
++    private static String str(Cursor c, String col) {
++        int i = c.getColumnIndex(col);
++        if (i < 0 || c.isNull(i)) return "";
++        String s = c.getString(i);
++        return s == null ? "" : s.trim();
++    }
++
++    private static long num(Cursor c, String col, long fallback) {
++        int i = c.getColumnIndex(col);
++        if (i < 0 || c.isNull(i)) return fallback;
++        try {
++            return c.getLong(i);
++        } catch (RuntimeException e) {
++            return fallback;
++        }
++    }
++
++    // ---- tiles ---------------------------------------------------------------------------------------
++
++    private static final int ID_LOGO = 1, ID_TITLE = 2, ID_META = 3, ID_TRACK = 4, ID_FILL = 5;
++
++    private FrameLayout makeTile(int slot) {
++        FrameLayout t = new FrameLayout(ctx);
++        t.setClipToOutline(true);
++        ImageView logo = new ImageView(ctx);
++        logo.setId(ID_LOGO);
++        logo.setAdjustViewBounds(true);
++        logo.setScaleType(ImageView.ScaleType.FIT_START);
++        t.addView(logo);
++        TextView title = text(ID_TITLE, 14, 0xFFFFFFFF, medium);
++        TextView meta = text(ID_META, 11, 0xB3FFFFFF, regular);
++        meta.setLetterSpacing(0.04f);
++        t.addView(title);
++        t.addView(meta);
++        View track = new View(ctx);
++        track.setId(ID_TRACK);
++        track.setBackgroundColor(0x40FFFFFF);
++        View fill = new View(ctx);
++        fill.setId(ID_FILL);
++        fill.setBackgroundColor(0xFFFFFFFF);
++        t.addView(track);
++        t.addView(fill);
++        // The app tiles' zoom (AppAdapter.Holder): the same scale, durations and overshoot, so the glass and the
++        // tile move exactly as they do on the dock and the grid.
++        t.setOnFocusChangeListener((v, has) -> {
++            v.animate().cancel();
++            float s = has ? focusScale : 1f;
++            if (!animations) {
++                v.setScaleX(1f);
++                v.setScaleY(1f);
++                v.setTranslationZ(0f);
++            } else if (reducedMotion) {
++                v.animate().scaleX(s).scaleY(s)
++                        .translationZ(has && advancedEffects ? 8f * density : 0f)
++                        .setDuration(has ? Motion.REDUCED_MS : 60)
++                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
++                        .start();
++            } else {
++                v.animate().scaleX(s).scaleY(s)
++                        .translationZ(has && advancedEffects ? 8f * density : 0f)
++                        .setDuration(advancedEffects ? (has ? 220 : 170) : (has ? 260 : 180))
++                        .setInterpolator(has && !overshoot ? new android.view.animation.DecelerateInterpolator(1.5f)
++                                : new android.view.animation.OvershootInterpolator(has ? (advancedEffects ? 0.7f : 1.6f) : 0f))
++                        .withLayer().start();
++            }
++            if (has) host.onContinueFocused(v, slot);
++        });
++        t.setOnKeyListener((v, keyCode, e) -> {
++            if (e.getAction() != KeyEvent.ACTION_DOWN) {
++                return keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN;
++            }
++            switch (keyCode) {
++                case KeyEvent.KEYCODE_DPAD_DOWN:
++                    host.onContinueDown(slot);
++                    return true;
++                case KeyEvent.KEYCODE_DPAD_UP:
++                    host.onContinueUp();
++                    return true;
++                case KeyEvent.KEYCODE_DPAD_LEFT:
++                    if (slot == 0) return true;
++                    tiles[slot - 1].requestFocus();
++                    v.playSoundEffect(android.view.SoundEffectConstants.NAVIGATION_LEFT);
++                    return true;
++                case KeyEvent.KEYCODE_DPAD_RIGHT:
++                    if (slot >= items.size() - 1) return true;
++                    tiles[slot + 1].requestFocus();
++                    v.playSoundEffect(android.view.SoundEffectConstants.NAVIGATION_RIGHT);
++                    return true;
++                default:
++                    return false;
++            }
++        });
++        t.setOnClickListener(v -> {
++            if (slot < items.size()) open(items.get(slot));
++        });
++        return t;
++    }
++
++    private TextView text(int id, int sp, int color, Typeface face) {
++        TextView tv = new TextView(ctx);
++        tv.setId(id);
++        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
++        tv.setTextColor(color);
++        tv.setTypeface(face);
++        tv.setSingleLine(true);
++        tv.setEllipsize(TextUtils.TruncateAt.END);
++        tv.setIncludeFontPadding(false);
++        return tv;
++    }
++
++    /** Sizes the children for the current tile size. */
++    private void styleTile(int slot) {
++        FrameLayout t = tiles[slot];
++        int m = Math.round(12 * density);
++        int logoH = Math.round(Math.min(20 * density, tileH * 0.2f));
++        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, logoH);
++        lp.leftMargin = m;
++        lp.topMargin = Math.round(10 * density);
++        t.findViewById(ID_LOGO).setLayoutParams(lp);
++        lp = new FrameLayout.LayoutParams(tileW - 2 * m, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
++        lp.leftMargin = m;
++        lp.bottomMargin = Math.round(33 * density);
++        t.findViewById(ID_TITLE).setLayoutParams(lp);
++        lp = new FrameLayout.LayoutParams(tileW - 2 * m, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
++        lp.leftMargin = m;
++        lp.bottomMargin = Math.round(17 * density);
++        t.findViewById(ID_META).setLayoutParams(lp);
++        lp = new FrameLayout.LayoutParams(tileW - 2 * m, Math.round(3 * density), Gravity.BOTTOM);
++        lp.leftMargin = m;
++        lp.bottomMargin = Math.round(8 * density);
++        t.findViewById(ID_TRACK).setLayoutParams(lp);
++        bind(slot);
++    }
++
++    private void bind(int slot) {
++        FrameLayout t = tiles[slot];
++        boolean filled = slot < items.size();
++        Item it = filled ? items.get(slot) : null;
++        GradientDrawable bg = new GradientDrawable();
++        bg.setCornerRadius(tileW > 0 ? AppAdapter.cornerRadius(tileW, density) : 12 * density);
++        if (filled) bg.setColor(0xE6141519);
++        else bg.setStroke(Math.max(1, Math.round(density)), 0x33FFFFFF);
++        t.setBackground(bg);
++        t.setFocusable(filled);
++        t.setFocusableInTouchMode(false);
++        t.setContentDescription(filled ? it.title : null);
++        ImageView logo = t.findViewById(ID_LOGO);
++        logo.setImageDrawable(filled ? it.logo : null);
++        logo.setVisibility(filled && it.logo != null ? View.VISIBLE : View.GONE);
++        TextView title = t.findViewById(ID_TITLE);
++        TextView meta = t.findViewById(ID_META);
++        title.setText(filled ? it.title : "");
++        meta.setText(filled ? it.subtitle : "");
++        boolean bar = filled && it.progress >= 0f;
++        View track = t.findViewById(ID_TRACK);
++        View fill = t.findViewById(ID_FILL);
++        track.setVisibility(bar ? View.VISIBLE : View.GONE);
++        fill.setVisibility(bar ? View.VISIBLE : View.GONE);
++        if (bar && tileW > 0) {
++            int m = Math.round(12 * density);
++            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
++                    Math.max(1, Math.round((tileW - 2 * m) * it.progress)), Math.round(3 * density), Gravity.BOTTOM);
++            lp.leftMargin = m;
++            lp.bottomMargin = Math.round(8 * density);
++            fill.setLayoutParams(lp);
++        }
++        if (!filled && t.isFocused()) t.clearFocus();
++    }
++
++    /**
++     * Opens the episode through the row's own link, but only into the app that published the row: the link is that
++     * app's data, so it must not be able to start another app's (or this launcher's) activities or grant URI access.
++     * Anything else opens the app at its start screen.
++     */
++    private void open(Item it) {
++        PackageManager pm = ctx.getPackageManager();
++        Intent launch = null;
++        if (!it.intentUri.isEmpty()) {
++            try {
++                Intent i = Intent.parseUri(it.intentUri, Intent.URI_INTENT_SCHEME);
++                i.setSelector(null);
++                i.removeFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
++                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
++                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++                ResolveInfo ri = pm.resolveActivity(i, 0);
++                if (ri != null && ri.activityInfo != null && it.pkg.equals(ri.activityInfo.packageName)) {
++                    i.setPackage(it.pkg);
++                    launch = i;
++                }
++            } catch (java.net.URISyntaxException | RuntimeException e) {
++                Log.w(TAG, "bad intent_uri from " + it.pkg, e);
++            }
++        }
++        if (launch == null) {
++            launch = pm.getLeanbackLaunchIntentForPackage(it.pkg);
++            if (launch == null) return;
++            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        }
++        try {
++            ctx.startActivity(launch);
++        } catch (ActivityNotFoundException | SecurityException e) {
++            Log.w(TAG, "could not open " + it.pkg, e);
++        }
++    }
++}
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java b/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
+index 1bb91dad..2ec7c94e 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
+@@ -229,6 +229,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     private int glassCardW;   // width of the tile the glass was last fitted to
+     private boolean glassShown;
+     private final Rect tileRect = new Rect();
++    /** continue_row: the Continue watching tiles above the dock, or null when off. */
++    private ContinueRow continueRow;
++    /** The row's tile focus last left from, so Down from the top bar returns there; -1 after a dock tile. */
++    private int continueSlot = -1;
++    /**
++     * The row tile Home should land on the next time a dock tile is restored (cold start, Home, back from an app
++     * opened from the row), or -1. Any key cleared it, so it never takes focus away from the remote.
++     */
++    private int continueArrival = 0;
++    /**
++     * Move from a tile's menu, as on Google TV: the app is picked up at once and one OK (or Back) puts it down and
++     * ends the mode. The top bar's reorder button keeps the longer mode for moving several apps in a row.
++     */
++    private boolean singleMove;
++    /** Where moveDock last sent the dock: compared instead of the current translation, which lags a running slide. */
++    private float dockTarget = 0f;
+     private final Rect revealRect = new Rect();
+     // Static so they survive the activity being destroyed while another app is open (low-memory TVs,
+     // or Developer options → "Don't keep activities"); they only reset when the process dies.
+@@ -648,6 +664,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         Order savedOrder = Order.load(Order.file(this));
+         adapter.setSavedOrder(Order.ranks(savedOrder, dockApps), Order.docked(savedOrder, dockApps));
+         grid.setAdapter(adapter);
++        if (getResources().getBoolean(R.bool.continue_row) && dockRow && !singleRow) {
++            continueRow = new ContinueRow(this, root, root.indexOfChild(glass), density, continueHost());
++            continueRow.setMotion(animations, advancedEffects, reducedMotion, cfg.focusOvershoot);
++        }
+ 
+         // tvOS layout: push the dock row towards the bottom of the screen, leaving room for
+         // rows_below_dock grid rows under it; the rest of the grid stays below until you press Down.
+@@ -702,6 +722,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+             @Override
+             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                 if (!glassShown) return;
++                // On a Continue watching tile the glass is not over the grid: a scroll (Home parking the dock)
++                // must not carry it off. Shift and translation are skipped together, so the springs stay in step.
++                if (continueRow != null && continueRow.hasFocus()) return;
+                 glassTargetY -= dy;
+                 glassScrollShift -= dy;
+                 glass.setTranslationY(glass.getTranslationY() - dy);
+@@ -850,7 +873,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
+             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+-                // Back to the dock tile Up came from, not wherever the focus finder lands.
++                // Back to the Continue watching tile or the dock tile Up came from, not wherever the focus finder lands.
++                if (continueRow != null && continueSlot >= 0 && continueRow.focus(continueSlot)) return true;
+                 focusTile(singleRow ? lastFocused : lastFocused % COLUMNS);
+                 return true;
+             }
+@@ -983,6 +1007,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         grid.scrollToPosition(0);
+         lastFocused = 0;
+         lastFocusedKey = adapter.getItemCount() > 0 ? adapter.keyAt(0) : null;
++        continueArrival = 0;
+         if (stopped) {
+             tileRefresh.onHomeAgain();
+         } else {
+@@ -1024,6 +1049,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         }
+         restartIdleClock();
+         promptsPaused = false;
++        if (continueRow != null) continueRow.refresh(hiddenApps);
+         if (grid.getAdapter() == null) grid.setAdapter(adapter);   // dropped by onTrimMemory
+         switch (tileRefresh.onResume(packagesChangedSinceRebuild())) {
+             case REBUILD:
+@@ -1223,6 +1249,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     protected void onPause() {
+         super.onPause();
+         resumed = false;
++        if (continueRow != null) continueArrival = continueRow.hasFocus() ? Math.max(0, continueSlot) : -1;
+         root.removeCallbacks(showIdleClock);
+         endReorder();   // Home or another app while reordering keeps the order so far
+         wallpaperPlayer.stop();
+@@ -1333,6 +1360,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+      */
+     @Override
+     public boolean dispatchKeyEvent(KeyEvent event) {
++        if (event.getAction() == KeyEvent.ACTION_DOWN) continueArrival = -1;
+         // Vendor keys (TCL Netflix button, 4062) never reach the key services, only the focused window.
+         if (event.getKeyCode() >= 1000 && RemoteKeys.handle(this, event, homeAppKeys.get(event.getKeyCode()), null)) return true;
+         if (handleSettingsKey(event)) return true;
+@@ -1364,7 +1392,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+                     return true;
+                 default:
+                     if (ok || back) {
+-                        if (!down) drop();
++                        // From the tile menu one press puts the app down and finishes (saving the order).
++                        if (!down) {
++                            if (singleMove) endReorder();
++                            else drop();
++                        }
+                         return true;
+                     }
+                     return super.dispatchKeyEvent(event);
+@@ -1380,7 +1412,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+             // The App library pill sits in the grid but is no tile: OK ends the mode (saving the order) and opens it.
+             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
+                 endReorder();
+-                onLibraryRequested();
++                // The Rearrange apps pill (reorder_corner_button) only finishes the mode; it must not start it again.
++                if (!adapter.isReorderFooter()) onLibraryRequested();
+             }
+             return true;
+         }
+@@ -1560,6 +1593,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     /** Ends the mode and saves the order if it changed since the mode started. */
+     private void endReorder() {
+         if (!reordering) return;
++        singleMove = false;
+         dockEditing = false;
+         dockEditSlot = -1;
+         dockEditAppKey = null;
+@@ -1669,6 +1703,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+ 
+     @Override
+     public void onLibraryRequested() {
++        // reorder_corner_button: the footer pill is Rearrange apps, not the library.
++        if (adapter.isReorderFooter()) {
++            toggleReorder();
++            return;
++        }
+         if (appLibrary != null) appLibrary.close();
+         if (openPopup != null) openPopup.dismiss();
+         libraryFocusPending = false;
+@@ -1701,6 +1740,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     @Override
+     public void onTileFocused(int position, View card) {
+         lastFocused = position;
++        continueSlot = -1;
+         lastFocusedKey = adapter.keyAt(position);
+         // Focus restored before the first layout (cold start): the tile has no size yet, and the glass
+         // would be sized to 2*pad. Run again once the tile is laid out.
+@@ -1797,12 +1837,150 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         }
+     }
+ 
++    // ---- continue watching (continue_row) --------------------------------------------------------
++
++    private ContinueRow.Host continueHost() {
++        return new ContinueRow.Host() {
++            @Override
++            public void onContinueFocused(View card, int slot) {
++                continueSlot = slot;
++                hideHero();
++                moveDock(continueRow.dockShift());
++                glassToCard(card);
++            }
++
++            @Override
++            public void onContinueDown(int column) {
++                continueSlot = -1;
++                focusTile(Math.min(column, Math.max(0, adapter.dockFilled() - 1)));
++                grid.playSoundEffect(SoundEffectConstants.NAVIGATION_DOWN);
++            }
++
++            @Override
++            public void onContinueUp() {
++                View current = getCurrentFocus();
++                View next = current == null ? null
++                        : android.view.FocusFinder.getInstance().findNextFocus(root, current, View.FOCUS_UP);
++                if (next == null || next.getParent() == current.getParent()) next = firstTopButton();
++                next.requestFocus();
++                grid.playSoundEffect(SoundEffectConstants.NAVIGATION_UP);
++            }
++
++            @Override
++            public void onContinueReady() {
++                // The list came in after Home put focus on the dock (a cold start reads it in the background).
++                int pos = focusedTilePosition();
++                if (continueArrival < 0 || !continueRow.placed() || pos < 0 || pos >= COLUMNS) return;
++                int slot = continueArrival;
++                continueArrival = -1;
++                continueRow.focus(slot);
++            }
++        };
++    }
++
++    /**
++     * A dock tile has focus: line the row up with the dock (dockTop: the dock cards' top at rest), fade it out and
++     * bring the dock back up. On arrival (continueArrival) the row takes focus instead, in the dock's place.
++     */
++    private void continueDockState(float dockTop) {
++        if (continueRow == null) return;
++        RecyclerView.ViewHolder vh = grid.findViewHolderForAdapterPosition(0);
++        View card = vh == null ? null : vh.itemView.findViewById(R.id.card);
++        if (card != null && card.getWidth() > 0) {
++            Rect r = new Rect(0, 0, card.getWidth(), card.getHeight());
++            root.offsetDescendantRectToMyCoords(card, r);
++            continueRow.place(r.left, vh.itemView.getWidth(), card.getWidth(), dockTop);
++        }
++        if (continueArrival >= 0 && continueRow.placed() && continueRow.count() > 0) {
++            int slot = continueArrival;
++            continueArrival = -1;
++            grid.post(() -> {
++                if (!isFinishing()) continueRow.focus(slot);
++            });
++            return;
++        }
++        continueRow.hide();
++        moveDock(0f);
++    }
++
++    /** The dock (the whole grid) down by dy while the row is in its place, or back up with 0. */
++    private void moveDock(float dy) {
++        // Against the target, not getTranslationY(): Home restores a dock tile (slide up) and then the row
++        // (slide down) within a frame, and the translation has not moved yet, so the second call would return
++        // early and the slide up would finish under the row.
++        if (dockTarget == dy && grid.getTranslationY() == dy) return;
++        dockTarget = dy;
++        grid.animate().cancel();
++        if (animations && !reducedMotion) {
++            grid.animate().translationY(dy).setDuration(280)
++                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
++        } else {
++            grid.setTranslationY(dy);
++        }
++    }
++
++    /** The glass onto a Continue watching tile: the same fit and spring as onTileFocused, in plain white. */
++    private void glassToCard(View card) {
++        // The row was just placed: fit the glass once its new position is laid out.
++        if (card.getWidth() == 0 || card.isLayoutRequested()) {
++            card.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
++                @Override
++                public void onGlobalLayout() {
++                    card.getViewTreeObserver().removeOnGlobalLayoutListener(this);
++                    if (card.isFocused() && card.getWidth() > 0) glassToCard(card);
++                }
++            });
++            return;
++        }
++        Rect r = tileRect;
++        r.set(0, 0, card.getWidth(), card.getHeight());
++        root.offsetDescendantRectToMyCoords(card, r);
++        float pad = 6f * density;
++        float scale = adapter.focusScale();
++        float w = card.getWidth() * scale + 2 * pad;
++        float h = card.getHeight() * scale + 2 * pad;
++        float x = r.exactCenterX() - w / 2f;
++        float y = r.exactCenterY() - h / 2f - (advancedEffects ? 4f * density : 0f);
++        ViewGroup.LayoutParams lp = glass.getLayoutParams();
++        if (lp.width != (int) w || lp.height != (int) h || card.getWidth() != glassCardW) {
++            lp.width = (int) w;
++            lp.height = (int) h;
++            glass.setLayoutParams(lp);
++            glass.setRadius(AppAdapter.cornerRadius(card.getWidth(), density) * scale);
++        }
++        glassCardW = card.getWidth();
++        glassTargetX = x;
++        glassTargetY = y;
++        if ((cinematic || appGlow) && glassAccent != 0) {
++            glassAccent = 0;
++            glass.setAccent(0);
++        }
++        if (!glassShown) {
++            springX.cancel();
++            springY.cancel();
++            glass.setTranslationX(x);
++            glass.setTranslationY(y);
++            if (animations && !reducedMotion) glass.animate().alpha(1f).setDuration(180).start();
++            else glass.setAlpha(1f);
++            glassShown = true;
++        } else if (!animations) {
++            springX.cancel();
++            springY.cancel();
++            glass.setTranslationX(x);
++            glass.setTranslationY(y);
++        } else {
++            springX.animateToFinalPosition(x - glassScrollShiftX);
++            springY.animateToFinalPosition(y - glassScrollShift);
++        }
++    }
++
+     // ---- top shelf -------------------------------------------------------------------------------
+ 
+     private void showHero(int position, float dockTopInRoot) {
+         String label = adapter.labelAt(position);
+         int color = adapter.ambientColorAt(position);
+         float y = dockTopInRoot - 14 * density - 26 * density - hero.getHeight();
++        continueDockState(dockTopInRoot);
+         boolean changed = !label.contentEquals(heroName.getText());
+         if (cinematic && heroArtAlpha > 0f) showHeroArt(position);
+ 
+@@ -2076,6 +2254,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+      * name above the dock does not show (every grid tile has its name underneath).
+      */
+     private void showGlowOnly(int position) {
++        if (continueRow != null) {
++            continueRow.hide();
++            moveDock(0f);
++        }
+         int color = adapter.ambientColorAt(position);
+         stopAmbientAnimation();
+         hero.animate().cancel();
+@@ -2349,7 +2531,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+                     rtlAppGrid, keyCode == KeyEvent.KEYCODE_DPAD_LEFT);
+         }
+         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+-            if (position < COLUMNS) return false;          // dock row: let focus move to the top bar
++            if (position < COLUMNS) {
++                // continue_row: the row above the dock comes first; without it, or empty, the top bar.
++                if (continueRow != null && continueRow.focus(position % COLUMNS)) {
++                    grid.playSoundEffect(SoundEffectConstants.NAVIGATION_UP);
++                    return true;
++                }
++                return false;                              // dock row: let focus move to the top bar
++            }
+             target = position - COLUMNS;
+         } else {
+             int lastRowStart = ((count - 1) / COLUMNS) * COLUMNS;
+@@ -2368,6 +2557,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+ 
+     @Override public void onLibraryFocused() {
+         libraryFocusPending = false;
++        if (continueRow != null) {
++            continueRow.hide();
++            moveDock(0f);
++        }
+         hideGlass();
+         hideHero();
+     }
+@@ -3525,19 +3718,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
+         LinearLayout rows = panel.findViewById(R.id.rows);
+         PopupWindow popup = glassPopup(panel, (int) (200 * density));
+-        if (dockRow && position < adapter.movableCount()) {
+-            boolean inDock = position < COLUMNS;
+-            addSettingsMenuRow(rows, popup, inDock ? R.string.tile_replace_in_dock : R.string.tile_add_to_dock,
+-                    () -> startDockEditFor(key, inDock));
+-        }
++        // Move first, as on Google TV: hold OK, OK again, and the app is already in hand.
+         if (position < adapter.movableCount()) addSettingsMenuRow(rows, popup, R.string.tile_move, () -> {
+             if (!beginReorder()) return;
+             int at = adapter.positionOf(key);   // beginReorder can rebuild the tiles
+             if (at < 0) return;
++            singleMove = true;
+             focusTile(at);
+             pickUp(at);
+-            Toast.makeText(this, R.string.reorder_hint, Toast.LENGTH_LONG).show();
++            Toast.makeText(this, R.string.move_hint, Toast.LENGTH_LONG).show();
+         });
++        if (dockRow && position < adapter.movableCount()) {
++            boolean inDock = position < COLUMNS;
++            addSettingsMenuRow(rows, popup, inDock ? R.string.tile_replace_in_dock : R.string.tile_add_to_dock,
++                    () -> startDockEditFor(key, inDock));
++        }
+         if (appLibraryEnabled) addSettingsMenuRow(rows, popup, R.string.library_remove_shortcut, () -> {
+             if (LibraryApps.save(this, pkg, false)) reloadApps(false);
+             else Toast.makeText(this, R.string.library_save_failed, Toast.LENGTH_LONG).show();
+diff --git a/launcher/app/src/main/res/values/config.xml b/launcher/app/src/main/res/values/config.xml
+index e626a420..e181657e 100644
+--- a/launcher/app/src/main/res/values/config.xml
++++ b/launcher/app/src/main/res/values/config.xml
+@@ -17,10 +17,11 @@
+ 
+     <!-- Apps pinned to the dock row at the bottom, in this order. Missing apps are skipped. -->
+     <string-array name="dock_apps">
++        <item>com.wbd.stream</item>
++        <item>com.crunchyroll.crunchyroid</item>
+         <item>com.netflix.ninja</item>
+-        <item>com.amazon.amazonvideo.livingroom</item>
+-        <item>com.google.android.youtube.tv</item>
+-        <item>in.startv.hotstar</item>
++        <item>com.hulu.livingroomplus</item>
++        <item>com.cbs.ott</item>
+     </string-array>
+     <!-- With fewer dock_apps than columns (or a dock app that is not installed), the free dock slots take
+          the first grid apps, so the dock never shows a gap. false leaves them empty (#162); a theme can
+@@ -29,12 +30,14 @@
+ 
+     <!-- Apps never shown as tiles (e.g. the Live TV app, which the Inputs menu already covers). -->
+     <string-array name="hidden_apps">
+-        <item>com.mediatek.wwtv.tvcenter</item>
+-        <item>com.mitv.gallery</item>
++        <item>com.google.android.youtube.tvunplugged</item>
++        <item>com.tubitv</item>
++        <item>com.instagram.airwave</item>
++        <item>com.haystack.android</item>
+     </string-array>
+ 
+     <!-- The TV's Live TV / tuner app, offered at the end of the Inputs menu. Leave empty to omit. -->
+-    <string name="live_tv_package" translatable="false">com.mediatek.wwtv.tvcenter</string>
++    <string name="live_tv_package" translatable="false"></string>
+ 
+     <!-- Open the Live TV app above the first time Home comes up after the TV is switched on, for sets that are
+          mostly used for broadcast TV. Once per boot: Home after that stays Home. Can also be set with
+@@ -209,6 +212,7 @@
+          where the firmware hands KEYCODE_GUIDE (172) to the stock launcher and no app ever receives it. Leave empty
+          to omit. -->
+     <string-array name="app_keys" translatable="false">
++        <item>190:com.google.android.youtube.tv</item>
+     </string-array>
+ 
+     <!-- Package of the stock launcher, for TVs whose firmware turns it back on after it was disabled. XGIMI's
+@@ -365,6 +369,15 @@
+          app_library) and App info. false keeps the old behaviour: holding OK opens the app's App info page.
+          Can also be set with "tile_menu": true in a theme's config.json. -->
+     <bool name="tile_menu">false</bool>
++    <!-- Personal branch: a Continue watching row above the dock, five tiles from the system's Watch Next list
++         (newest first, one per show), each opening that episode in its app. Empty slots stay as outlines. Needs
++         READ_TV_LISTINGS (pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS). No poster art: the
++         posters are web links and the launcher has no network access. -->
++    <bool name="continue_row">true</bool>
++    <!-- mateo-tv: a small Rearrange apps pill in the bottom right corner, after the last row of apps (Down from the
++         last row, or Right from the last app). OK starts reorder mode; OK on it again, or Back, finishes. Shown only
++         when the App library pill is off, since both use that slot. -->
++    <bool name="reorder_corner_button">true</bool>
+ 
+     <!-- Grid rows left visible under the dock on the home screen. 0 = dock sits at the very bottom. Tiles shrink if
+          the dock, its title and this many rows would not otherwise fit the screen height. -->
+@@ -376,7 +389,7 @@
+ 
+     <!-- Tiles per row in the grid; the dock always has this many slots. Tiles are 180dp wide at 4 columns and
+          shrink to fit from 5 up (about 144dp at 5, 117dp at 6 on a 1080p TV). -->
+-    <integer name="columns">4</integer>
++    <integer name="columns">5</integer>
+ 
+     <!-- Basic motion is on; advanced effects are opt-in in the launcher's own Settings screen. -->
+     <bool name="animations">true</bool>
+diff --git a/launcher/app/src/main/res/values/mateo_tv.xml b/launcher/app/src/main/res/values/mateo_tv.xml
+new file mode 100644
+index 00000000..5d621d9d
+--- /dev/null
++++ b/launcher/app/src/main/res/values/mateo_tv.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Strings for the mateo-tv branch's own additions; English only. -->
++<resources>
++    <!-- Heading over the Continue watching row (continue_row). -->
++    <string name="continue_watching" translatable="false">Continue watching</string>
++    <!-- Toast after Move in a tile's menu: one press puts the app down, as on Google TV. -->
++    <string name="move_hint" translatable="false">Arrows move the app. Press OK when it is in place.</string>
++    <!-- The small pill after the last row (reorder_corner_button). -->
++    <string name="rearrange_apps" translatable="false">Rearrange apps</string>
++</resources>
+diff --git a/themes/README.md b/themes/README.md
+index bd7ca299..56723116 100644
+--- a/themes/README.md
++++ b/themes/README.md
+@@ -116,6 +116,8 @@ A new key needs one there in the same pull request.
+ | `wallpaper_captions` | bool | With a rotating collection, the shown picture's name under the top-right buttons, from `wallpapers/captions.txt` (`001.jpg<TAB>Dusk over the peaks`, one per line); a picture without a line shows no name (`false` by default) |
+ | `wallpaper_moods` | object | A rotating collection grouped by time of day: `{"morning": [...], "evening": [...], "night": [...]}` with file names from `wallpapers/`. Morning runs from sunrise to noon, evening until half an hour after sunset, night the rest, with the sun at config.xml's `latitude` and `longitude` (07:00 and 18:30 without them); a missing group rotates through every picture. Unset by default |
+ | `tile_menu` | bool | Hold OK or press the remote's Menu key on a tile to open a small menu: Move, Remove from Home (with `app_library`) and App info. `false` (the default) keeps holding OK as a shortcut to the app's App info page and leaves Menu unchanged |
++| `continue_row` | bool | mateo-tv branch, config.xml only: a Continue watching row in the dock's place, five tiles from the system's Watch Next list that open the episode; needs READ_TV_LISTINGS (`pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS`) |
++| `reorder_corner_button` | bool | mateo-tv branch, config.xml only: a small Rearrange apps pill in the bottom right corner after the last row, in the App library pill's slot when that pill is off; OK starts reorder mode |
+ | `festival` | string | Turns on a festive skin: the network pill becomes a diya whose flame follows the connection, Inputs a temple bell, Settings a marigold, and the first Home of the day gets a petal shower. `dussehra` and `diwali` have built-in greetings |
+ | `festival_until` | `YYYY-MM-DD` | Last day the festive skin shows; it switches itself off after that. A malformed date turns it off |
+ | `greeting` | string | Replaces the time-of-day greeting while the festive skin is on |

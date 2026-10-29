@@ -1,0 +1,9 @@
+# Google TV Streamer (kirkwood), Google TV 14, UTTK.260317.003 - batch 1: telemetry, feedback and ads
+# From examples/google-tv-streamer-4k-kirkwood/debloat.txt. Undo: tools/restore.sh work/1-telemetry.txt
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.google.android.tv.remotecontrol.logging
+com.google.android.federatedcompute
+com.google.android.ondevicepersonalization.services
+com.google.android.adservices.api
+com.google.android.ext.adservices.api

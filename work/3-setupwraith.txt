@@ -1,0 +1,5 @@
+# Google TV Streamer (kirkwood) - batch 3: the setup wizard. Its RecoveryActivity claims HOME, so the
+# new launcher can only take Home with it disabled. It also hosts the Cast credentials: after every
+# reboot, restore casting with work/cast-fix.sh (enable, wait for the signer, disable).
+# Undo: tools/restore.sh work/3-setupwraith.txt
+com.google.android.tungsten.setupwraith

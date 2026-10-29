@@ -1,0 +1,5 @@
+# Google TV Streamer (kirkwood) - batch 4: Google's Ambient screensaver, at the owner's request.
+# screensaver_components is pointed at com.gathin.tvhome/.ClockDream afterwards.
+# Undo: tools/restore.sh work/4-screensaver.txt, then
+#   settings put secure screensaver_components com.google.android.apps.tv.dreamx/.service.Backdrop
+com.google.android.apps.tv.dreamx

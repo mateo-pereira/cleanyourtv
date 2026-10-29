@@ -1,0 +1,9 @@
+# Google TV Streamer (kirkwood) - batch 2: preloaded and streaming apps the owner does not use
+# Undo: tools/restore.sh work/2-apps.txt
+com.google.android.play.games
+com.google.android.videos                       # Google TV / Play Movies
+com.google.android.marvin.talkback              # screen reader
+com.google.android.youtube.tvunplugged          # YouTube TV
+com.tubitv
+com.instagram.airwave
+com.haystack.android
