@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings for the mateo-tv branch's own additions; English only. -->
+<resources>
+    <!-- Heading over the Continue watching row (continue_row). -->
+    <string name="continue_watching" translatable="false">Continue watching</string>
+    <!-- Toast after Move in a tile's menu: one press puts the app down, as on Google TV. -->
+    <string name="move_hint" translatable="false">Arrows move the app. Press OK when it is in place.</string>
+    <!-- The small pill after the last row (reorder_corner_button). -->
+    <string name="rearrange_apps" translatable="false">Rearrange apps</string>
+</resources>

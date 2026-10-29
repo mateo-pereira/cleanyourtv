@@ -21,10 +21,16 @@
     <!-- YaOS (Yandex TV OS): HDMI, AV and the tuner all play in com.yandex.tv.live, whose activities require
          this permission (protection level normal, so it is granted at install). Ignored on other TVs. -->
     <uses-permission android:name="yandex.tv.permission.ACCESS_TV_SOURCE" />
+    <!-- continue_row (personal branch): reads the system's Continue watching list (Watch Next). A runtime
+         permission, granted with pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS; without it
+         the row stays hidden. -->
+    <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
 
     <!-- Android 11+ package visibility: lets the launcher list the TV apps it shows as tiles, and the
          apps that declare a module card (docs/specs/card.md). -->
     <queries>
+        <!-- continue_row: the TV provider that holds the Watch Next list. -->
+        <provider android:authorities="android.media.tv" />
         <!-- The standard settings handlers, so package visibility doesn't hide them and send the pills to a vendor fallback by mistake. -->
         <intent>
             <action android:name="android.settings.SETTINGS" />

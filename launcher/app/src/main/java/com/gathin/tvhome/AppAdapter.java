@@ -203,6 +203,11 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private final boolean animations;
     private final boolean advancedEffects;
     private final boolean showLibrary;
+    /**
+     * reorder_corner_button (mateo-tv): the footer slot after the last row holds a small Rearrange apps pill at the
+     * right instead of the App library pill. Only when the library pill is off, so the two never share the slot.
+     */
+    private final boolean reorderFooter;
     /** Packages with a leanback entry at the last reload(): their tiles launch with the leanback category. */
     private Set<String> leanbackPackages = new HashSet<>();
     private final boolean showHomeSettings;
@@ -234,6 +239,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.advancedEffects = cfg.animations && cfg.advancedEffects;
         this.showHomeSettings = cfg.showHomeSettingsShortcut;
         this.showLibrary = LibraryApps.showPill(cfg.appLibrary, cfg.libraryButton, cfg.showLibraryPill);
+        this.reorderFooter = !showLibrary && ctx.getResources().getBoolean(R.bool.reorder_corner_button);
         this.reducedMotion = cfg.reducedMotion;
         this.focusOvershoot = cfg.focusOvershoot;
         this.rowsBelowDock = cfg.rowsBelowDock;
@@ -401,6 +407,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (viewType == 1) {
             View row = LayoutInflater.from(ctx).inflate(R.layout.row_app_library, parent, false);
             View button = row.findViewById(R.id.btnLibrary);
+            if (reorderFooter) styleReorderPill((TextView) button);
             button.setOnClickListener(v -> listener.onLibraryRequested());
             button.setOnFocusChangeListener((v, focused) -> { if (focused) listener.onLibraryFocused(); });
             button.setOnKeyListener((v, key, event) -> {
@@ -562,12 +569,29 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     @Override
     public int getItemCount() {
-        return items.size() + (showLibrary ? 1 : 0);
+        return items.size() + (showLibrary || reorderFooter ? 1 : 0);
+    }
+
+    /** The footer slot holds the Rearrange apps pill (reorder_corner_button) rather than the App library pill. */
+    boolean isReorderFooter() { return reorderFooter; }
+
+    /** The library pill's view, made into a smaller Rearrange apps pill in the bottom right corner. */
+    private void styleReorderPill(TextView pill) {
+        float density = ctx.getResources().getDisplayMetrics().density;
+        pill.setText(R.string.rearrange_apps);
+        pill.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_swap_vert, 0, 0, 0);
+        pill.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+        pill.setPadding(Math.round(14 * density), Math.round(7 * density), Math.round(16 * density), Math.round(7 * density));
+        pill.setCompoundDrawablePadding(Math.round(6 * density));
+        android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) pill.getLayoutParams();
+        lp.gravity = android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL;
+        lp.setMarginEnd(Math.round(14 * density));
+        pill.setLayoutParams(lp);
     }
 
     int appCount() { return items.size(); }
 
-    boolean isLibraryAt(int position) { return showLibrary && position == items.size(); }
+    boolean isLibraryAt(int position) { return (showLibrary || reorderFooter) && position == items.size(); }
 
     @Override public int getItemViewType(int position) { return isLibraryAt(position) ? 1 : 0; }
 
