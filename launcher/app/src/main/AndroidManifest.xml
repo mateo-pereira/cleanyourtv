@@ -25,6 +25,10 @@
          permission, granted with pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS; without it
          the row stays hidden. -->
     <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
+    <!-- idle_video_button (mateo-tv): VideoDream plays the videos in the Movies folder. Runtime permissions,
+         granted with pm grant com.gathin.tvhome android.permission.READ_MEDIA_VIDEO. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <!-- Android 11+ package visibility: lets the launcher list the TV apps it shows as tiles, and the
          apps that declare a module card (docs/specs/card.md). -->
@@ -196,6 +200,18 @@
 
         <!-- Screensaver: pick it in Settings, or `settings put secure screensaver_components
              com.gathin.tvhome/.ClockDream` over adb. -->
+        <!-- idle_video_button (mateo-tv): the idle video chosen on Home. -->
+        <service
+            android:name=".VideoDream"
+            android:label="@string/idle_video_dream"
+            android:exported="true"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".ClockDream"
             android:label="@string/dream_name"

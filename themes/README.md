@@ -118,6 +118,8 @@ A new key needs one there in the same pull request.
 | `tile_menu` | bool | Hold OK or press the remote's Menu key on a tile to open a small menu: Move, Remove from Home (with `app_library`) and App info. `false` (the default) keeps holding OK as a shortcut to the app's App info page and leaves Menu unchanged |
 | `continue_row` | bool | mateo-tv branch, config.xml only: a Continue watching row in the dock's place, five tiles from the system's Watch Next list that open the episode; needs READ_TV_LISTINGS (`pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS`) |
 | `reorder_corner_button` | bool | mateo-tv branch, config.xml only: a small Rearrange apps pill in the bottom right corner after the last row, in the App library pill's slot when that pill is off; OK starts reorder mode |
+| `idle_video_button` | bool | mateo-tv branch, config.xml only: an Idle video pill left of Rearrange apps; its menu picks the idle screensaver: no video (clock), Shuffle all, or one video from the Movies folder, played by the launcher's VideoDream |
+| `idle_video_titles` | list of strings | mateo-tv branch, config.xml only: names for the idle videos, as `file name=Title` |
 | `festival` | string | Turns on a festive skin: the network pill becomes a diya whose flame follows the connection, Inputs a temple bell, Settings a marigold, and the first Home of the day gets a petal shower. `dussehra` and `diwali` have built-in greetings |
 | `festival_until` | `YYYY-MM-DD` | Last day the festive skin shows; it switches itself off after that. A malformed date turns it off |
 | `greeting` | string | Replaces the time-of-day greeting while the festive skin is on |

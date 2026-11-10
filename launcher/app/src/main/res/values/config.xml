@@ -378,6 +378,16 @@
          last row, or Right from the last app). OK starts reorder mode; OK on it again, or Back, finishes. Shown only
          when the App library pill is off, since both use that slot. -->
     <bool name="reorder_corner_button">true</bool>
+    <!-- mateo-tv: an Idle video pill left of Rearrange apps (with reorder_corner_button). OK opens a menu: No idle
+         video (the clock screensaver), Shuffle all, or one of the videos in the TV's Movies folder. The screensaver
+         is then the launcher's VideoDream. Needs WRITE_SECURE_SETTINGS and READ_MEDIA_VIDEO (pm grant). -->
+    <bool name="idle_video_button">true</bool>
+    <!-- Names for the idle videos, as "file name=Title". Files in the Movies folder without a line show their name. -->
+    <string-array name="idle_video_titles" translatable="false">
+        <item>sakunaVmahoraga.mp4=Sakuna v Mahoraga</item>
+        <item>uzuiVgyu.mp4=Tengen v Gyutaro</item>
+        <item>gokuVjiren.mp4=Goku v Jiren</item>
+    </string-array>
 
     <!-- Grid rows left visible under the dock on the home screen. 0 = dock sits at the very bottom. Tiles shrink if
          the dock, its title and this many rows would not otherwise fit the screen height. -->

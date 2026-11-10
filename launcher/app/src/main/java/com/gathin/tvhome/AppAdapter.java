@@ -61,6 +61,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         /** Hold OK on a tile: the activity shows the tile menu (move, remove from Home, app info). */
         void onTileLongPress(int position, View card);
         void onLibraryUp();
+        /** idle_video_button (mateo-tv): OK on the Idle video pill, next to Rearrange apps. */
+        void onIdleVideoRequested(View anchor);
         /** A tile whose launch_actions entry is "input:<id>": switch to that TV input instead of opening an app. */
         void onOpenInput(String inputId);
     }
@@ -208,6 +210,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * right instead of the App library pill. Only when the library pill is off, so the two never share the slot.
      */
     private final boolean reorderFooter;
+    /** idle_video_button (mateo-tv): an Idle video pill left of the Rearrange apps pill. */
+    private final boolean idleVideoButton;
     /** Packages with a leanback entry at the last reload(): their tiles launch with the leanback category. */
     private Set<String> leanbackPackages = new HashSet<>();
     private final boolean showHomeSettings;
@@ -240,6 +244,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.showHomeSettings = cfg.showHomeSettingsShortcut;
         this.showLibrary = LibraryApps.showPill(cfg.appLibrary, cfg.libraryButton, cfg.showLibraryPill);
         this.reorderFooter = !showLibrary && ctx.getResources().getBoolean(R.bool.reorder_corner_button);
+        this.idleVideoButton = ctx.getResources().getBoolean(R.bool.idle_video_button);
         this.reducedMotion = cfg.reducedMotion;
         this.focusOvershoot = cfg.focusOvershoot;
         this.rowsBelowDock = cfg.rowsBelowDock;
@@ -408,11 +413,13 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             View row = LayoutInflater.from(ctx).inflate(R.layout.row_app_library, parent, false);
             View button = row.findViewById(R.id.btnLibrary);
             if (reorderFooter) styleReorderPill((TextView) button);
+            View idle = reorderFooter && idleVideoButton ? addIdlePill((android.widget.FrameLayout) row, (TextView) button) : null;
             button.setOnClickListener(v -> listener.onLibraryRequested());
             button.setOnFocusChangeListener((v, focused) -> { if (focused) listener.onLibraryFocused(); });
             button.setOnKeyListener((v, key, event) -> {
                 if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
                 if (key == KeyEvent.KEYCODE_DPAD_UP) listener.onLibraryUp();
+                if (key == KeyEvent.KEYCODE_DPAD_LEFT && idle != null) idle.requestFocus();
                 return key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN
                         || key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT;
             });
@@ -574,6 +581,51 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /** The footer slot holds the Rearrange apps pill (reorder_corner_button) rather than the App library pill. */
     boolean isReorderFooter() { return reorderFooter; }
+
+    /**
+     * idle_video_button: an Idle video pill, styled like the Rearrange apps pill, to its left. Both move into a
+     * row at the right of the footer. Left from Rearrange apps reaches it; Right goes back; Up leaves for the grid.
+     */
+    private View addIdlePill(android.widget.FrameLayout row, TextView rearrange) {
+        float density = ctx.getResources().getDisplayMetrics().density;
+        TextView idle = new TextView(ctx, null, 0, R.style.TopButton);
+        idle.setId(R.id.btnIdleVideo);
+        idle.setText(R.string.idle_video);
+        idle.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_picture, 0, 0, 0);
+        idle.setCompoundDrawableTintList(rearrange.getCompoundDrawableTintList());
+        idle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+        idle.setPadding(rearrange.getPaddingStart(), rearrange.getPaddingTop(), rearrange.getPaddingEnd(), rearrange.getPaddingBottom());
+        idle.setCompoundDrawablePadding(rearrange.getCompoundDrawablePadding());
+        idle.setFocusable(true);
+        android.widget.FrameLayout.LayoutParams old = (android.widget.FrameLayout.LayoutParams) rearrange.getLayoutParams();
+        row.removeView(rearrange);
+        android.widget.LinearLayout pills = new android.widget.LinearLayout(ctx);
+        pills.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        pills.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        pills.setClipChildren(false);
+        pills.setClipToPadding(false);
+        pills.addView(idle);
+        android.widget.LinearLayout.LayoutParams gap = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        gap.setMarginStart(Math.round(12 * density));
+        pills.addView(rearrange, gap);
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                old.gravity);
+        lp.setMarginEnd(old.getMarginEnd());
+        row.setClipChildren(false);
+        row.addView(pills, lp);
+        idle.setOnClickListener(v -> listener.onIdleVideoRequested(v));
+        idle.setOnFocusChangeListener((v, focused) -> { if (focused) listener.onLibraryFocused(); });
+        idle.setOnKeyListener((v, key, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (key == KeyEvent.KEYCODE_DPAD_UP) listener.onLibraryUp();
+            if (key == KeyEvent.KEYCODE_DPAD_RIGHT) rearrange.requestFocus();
+            return key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN
+                    || key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT;
+        });
+        return idle;
+    }
 
     /** The library pill's view, made into a smaller Rearrange apps pill in the bottom right corner. */
     private void styleReorderPill(TextView pill) {

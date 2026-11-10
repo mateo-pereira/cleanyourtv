@@ -17,7 +17,7 @@ export TV_HOST=<tv ip>
 | 3 | `work/3-setupwraith.txt` | The setup wizard: disabled (needed so the new launcher can be Home) |
 | 4 | `work/4-screensaver.txt` | Google's Ambient screensaver: disabled |
 | - | - | Stock launcher (`launcherx`) disabled by `launcher/build-and-install.sh`, new launcher (`com.gathin.tvhome`) is Home |
-| - | - | Screensaver: Aerial Views, alternating `/sdcard/Movies/sakunaVmahoraga.mp4` and `uzuiVgyu.mp4` (shuffle off), muted, after 5 minutes idle (was 10); sleep stays at 20 minutes |
+| - | - | Screensaver: the launcher's VideoDream playing the Idle video choice (Shuffle all, or one of `sakunaVmahoraga.mp4`, `uzuiVgyu.mp4`, `gokuVjiren.mp4` in `/sdcard/Movies`), muted, after 5 minutes idle (was 10); sleep stays at 20 minutes |
 | - | - | Developer options > "Stay awake" switched off (it was on, and kept the screensaver from ever starting). The Streamer now goes to standby after 20 idle minutes |
 | - | `work/theme-home/` | Home wallpaper: the blue flower picture at night, the green one by day, dimmed 30%; hold OK on a tile to move it |
 | - | - | Private DNS: `dns.adguard-dns.com` (ad and tracker blocking) |
@@ -133,13 +133,12 @@ Screensaver delay: `tools/venv/Scripts/python.exe tools/tv.py "settings put syst
 
 ## Change the screensaver video
 
-Copy another mp4 to the Streamer's `Movies` folder:
-`tools/venv/Scripts/python.exe tools/b64push.py <file.mp4> /sdcard/Movies/<name>.mp4`
-(in Git Bash, run `export MSYS_NO_PATHCONV=1` first). Aerial Views plays every video it finds there, one after
-the other in filename order (Shuffle is off under Aerial Views > Settings > Playlist; tick it for random order).
-On the remote during the screensaver, Right skips to the next video.
-To go back to the launcher's clock:
-`tools/tv.py "settings put secure screensaver_components com.gathin.tvhome/.ClockDream"`.
+At the bottom of Home, **Idle video** (left of Rearrange apps) picks it: No idle video (the clock instead), Shuffle
+all, or one video. To add a video, copy it to the Streamer's Movies folder:
+`tools/venv/Scripts/python.exe tools/b64push.py <file.mp4> /sdcard/Movies/<name>.mp4` (in Git Bash, run
+`export MSYS_NO_PATHCONV=1` first). It shows in the menu under its file name; to give it a title, add
+`<name>.mp4=Title` to `idle_video_titles` in `launcher/app/src/main/res/values/config.xml` and rebuild
+(`bash work/build-and-install.sh`). Aerial Views is no longer used and can be uninstalled from the Play Store.
 
 ## Undo everything
 

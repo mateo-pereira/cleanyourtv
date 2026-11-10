@@ -3696,6 +3696,47 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         rows.getChildAt(0).requestFocus();
     }
 
+    /**
+     * idle_video_button (mateo-tv): OK on the Idle video pill. A glass menu above it: No idle video, Shuffle all,
+     * then every video in the Movies folder by its title (IdleVideos); the current choice carries a check.
+     */
+    @Override
+    public void onIdleVideoRequested(View anchor) {
+        if (reordering) return;
+        String current = IdleVideos.choice(this);
+        View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
+        LinearLayout rows = panel.findViewById(R.id.rows);
+        PopupWindow popup = glassPopup(panel, (int) (240 * density));
+        List<String> choices = new ArrayList<>(Arrays.asList(IdleVideos.OFF, IdleVideos.SHUFFLE));
+        for (IdleVideos.Video v : IdleVideos.list(this)) choices.add(v.file.getName());
+        int focus = 0;
+        for (int i = 0; i < choices.size(); i++) {
+            String choice = choices.get(i);
+            if (choice.equals(current)) focus = i;
+            String label = IdleVideos.label(this, choice);
+            addSettingsMenuRow(rows, popup, (choice.equals(current) ? "\u2713  " : "     ") + label, () -> {
+                boolean applied = IdleVideos.apply(this, choice);
+                Toast.makeText(this, applied ? getString(R.string.idle_video_set, label)
+                        : getString(R.string.idle_video_failed), Toast.LENGTH_LONG).show();
+            });
+        }
+        panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        popup.setWidth(Math.max((int) (240 * density), panel.getMeasuredWidth()));
+        // The pill sits at the bottom of the screen: open the menu above it, right edges lined up.
+        int[] at = new int[2];
+        anchor.getLocationInWindow(at);
+        int gap = (int) (10 * density), height = panel.getMeasuredHeight();
+        int x = Math.max(0, at[0] + anchor.getWidth() - popup.getWidth());
+        panel.setAlpha(0f);
+        panel.setPivotY(height);
+        panel.setScaleY(0.92f);
+        panel.setTranslationY(8 * density);
+        popup.showAtLocation(root, Gravity.NO_GRAVITY, x, Math.max(0, at[1] - gap - height));
+        panel.animate().alpha(1f).scaleY(1f).translationY(0f).setDuration(220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+        rows.getChildAt(focus).requestFocus();
+    }
+
     /** A tile configured with launch_actions "input:<id>" (config.xml): switch to that TV input directly,
      *  the same path the Inputs menu's own rows use, instead of opening the input's owning app normally. */
     @Override
@@ -3761,6 +3802,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void addSettingsMenuRow(LinearLayout rows, PopupWindow popup, int title, Runnable action) {
+        addSettingsMenuRow(rows, popup, getString(title), action);
+    }
+
+    private void addSettingsMenuRow(LinearLayout rows, PopupWindow popup, CharSequence title, Runnable action) {
         View row = getLayoutInflater().inflate(R.layout.item_input, rows, false);
         row.findViewById(R.id.icon).setVisibility(View.GONE);
         row.findViewById(R.id.dot).setVisibility(View.GONE);

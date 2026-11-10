@@ -12,3 +12,5 @@ INPUT_KEY_SERVICE="${INPUT_KEY_SERVICE:-1}" bash launcher/build-and-install.sh
 # continue_row (personal branch personal/continue-watching): let the launcher read the Watch Next list.
 PY=tools/venv/bin/python; [ -x "$PY" ] || PY=tools/venv/Scripts/python.exe
 "$PY" tools/tv.py "pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS 2>/dev/null && echo continue-row-granted || true"
+# idle_video_button (mateo-tv): read the Movies folder, and switch the screensaver from the Idle video menu.
+"$PY" tools/tv.py "pm grant com.gathin.tvhome android.permission.READ_MEDIA_VIDEO && pm grant com.gathin.tvhome android.permission.WRITE_SECURE_SETTINGS && echo idle-video-granted || true"

@@ -38,6 +38,7 @@ Files from the first TV that this list refers to (all in `work/`):
       If they are real installs on the other TV, disable them.
 - [ ] **Keep these streaming apps**: Netflix, YouTube, Prime Video, Disney+, Hulu, Max, Peacock, Crunchyroll,
       Twitch, Spotify and Paramount+. Paramount+ (`com.cbs.ott`) was not installed on the first TV; install it from the Play Store.
+      Aerial Views is no longer needed (step 5).
 - [ ] **Keep**: Google Assistant / voice search, the Chromecast receiver and firmware updates (for the TV and its
       remote), as well as everything PROMPT.md says the TV needs.
 - [ ] **Disable Google's Ambient screensaver**: `com.google.android.apps.tv.dreamx` (Google TV). Step 5 replaces it.
@@ -66,6 +67,7 @@ All of these are already in `work/continue-row.patch` (step 8), so applying that
 - [ ] `app_keys`: `190:com.google.android.youtube.tv`, so the remote's YouTube button works without the stock launcher.
 - [ ] `continue_row`: `true` (only exists with the `mateo-tv` code from step 8).
 - [ ] `reorder_corner_button`: `true` (only exists with the `mateo-tv` code): the Rearrange apps pill in step 7.
+- [ ] `idle_video_button`: `true` and `idle_video_titles` (both `mateo-tv` code): the Idle video pill in step 5.
 
 ## 4. Remote buttons
 
@@ -75,20 +77,25 @@ All of these are already in `work/continue-row.patch` (step 8), so applying that
       step 3. Trade-off accepted: holding Volume Up/Down stops after about six steps. On another remote the
       YouTube button may send a different keycode: check with the real remote (see PROMPT.md).
 
-## 5. Screensaver: your videos with Aerial Views
+## 5. Screensaver: your videos, picked from Home
 
-- [ ] Install **Aerial Views** (`com.neilturner.aerialviews`) from the Play Store.
-- [ ] Copy **[your file]** videos to `/sdcard/Movies/` (`tools/b64push.py <file> /sdcard/Movies/<name>.mp4`,
-      after `export MSYS_NO_PATHCONV=1` in Git Bash), then:
-      `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Movies/<name>.mp4`.
-- [ ] `pm grant com.neilturner.aerialviews android.permission.READ_MEDIA_VIDEO`
-- [ ] `settings put secure screensaver_components com.neilturner.aerialviews/.ui.screensaver.DreamActivity`
-- [ ] In Aerial Views > **Media Sources**, turn **off** Videos by Apple, Videos by Amazon, Videos by Jetson
-      Creative and Videos by Robin Fourcade. Turn **on** Local or USB storage. "Test local search settings" should
-      find your videos.
-- [ ] In Aerial Views > **Settings > Playlist**: **untick Shuffle**, so the videos alternate in filename order.
-      **Audio mode** must be "Mute audio from videos" (no sound). Leave "Loop photos and videos until skipped" and
-      "Random start position" unticked.
+The launcher plays the videos itself (`VideoDream`, `mateo-tv` code); Aerial Views is no longer used.
+
+- [ ] Copy **[your file]** videos to `/sdcard/Movies/` with these names (`tools/b64push.py <file> /sdcard/Movies/<name>`,
+      after `export MSYS_NO_PATHCONV=1` in Git Bash): `sakunaVmahoraga.mp4`, `uzuiVgyu.mp4`, `gokuVjiren.mp4`. Then for
+      each: `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Movies/<name>`.
+      The Goku video is 4K AV1: check the other TV can play AV1, or re-encode it to H.264 1080p first.
+- [ ] Their titles come from `idle_video_titles` in `config.xml` (step 3): `sakunaVmahoraga.mp4=Sakuna v Mahoraga`,
+      `uzuiVgyu.mp4=Tengen v Gyutaro`, `gokuVjiren.mp4=Goku v Jiren`. Any other video in Movies shows its file name.
+- [ ] Grant: `pm grant com.gathin.tvhome android.permission.READ_MEDIA_VIDEO` and
+      `pm grant com.gathin.tvhome android.permission.WRITE_SECURE_SETTINGS` (`work/build-and-install.sh` does both).
+- [ ] `settings put secure screensaver_components com.gathin.tvhome/.VideoDream`
+- [ ] **Idle video button** (`idle_video_button`): a pill left of Rearrange apps, same size and font, at the bottom right
+      after the last row. OK opens a menu: **No idle video** (the launcher's clock screensaver instead), **Shuffle all**
+      (every video in a random order, the default), or one video (played on a loop). The current choice has a check.
+- [ ] The screensaver is muted, fills the screen (centre-cropped) and shows a small clock bottom left.
+- [ ] Check: pick a video, set `screen_off_timeout` to 30000 for a moment, wait, and `dumpsys dreams | grep mCurrentDream`
+      names `VideoDream`; set it back to 300000.
 
 ## 6. Screensaver timing
 

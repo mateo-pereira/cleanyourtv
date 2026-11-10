@@ -7,4 +7,12 @@
     <string name="move_hint" translatable="false">Arrows move the app. Press OK when it is in place.</string>
     <!-- The small pill after the last row (reorder_corner_button). -->
     <string name="rearrange_apps" translatable="false">Rearrange apps</string>
+    <!-- idle_video_button: the pill, the menu's first two rows, the toasts and the screensaver's name. -->
+    <string name="idle_video" translatable="false">Idle video</string>
+    <string name="idle_video_none" translatable="false">No idle video</string>
+    <string name="idle_video_shuffle" translatable="false">Shuffle all</string>
+    <string name="idle_video_set" translatable="false">Idle video: %1$s</string>
+    <string name="idle_video_failed" translatable="false">Saved, but the screensaver could not be switched: the launcher needs WRITE_SECURE_SETTINGS.</string>
+    <string name="idle_video_dream" translatable="false">Idle video</string>
+    <item type="id" name="btnIdleVideo" />
 </resources>
