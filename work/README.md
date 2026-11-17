@@ -17,7 +17,7 @@ export TV_HOST=<tv ip>
 | 3 | `work/3-setupwraith.txt` | The setup wizard: disabled (needed so the new launcher can be Home) |
 | 4 | `work/4-screensaver.txt` | Google's Ambient screensaver: disabled |
 | - | - | Stock launcher (`launcherx`) disabled by `launcher/build-and-install.sh`, new launcher (`com.gathin.tvhome`) is Home |
-| - | - | Screensaver: the launcher's VideoDream playing the Idle video choice (Shuffle all, or one of `sakunaVmahoraga.mp4`, `uzuiVgyu.mp4`, `gokuVjiren.mp4` in `/sdcard/Movies`), muted, after 5 minutes idle (was 10); sleep stays at 20 minutes |
+| - | - | Screensaver: the launcher's VideoDream playing the Idle video choice (Shuffle all, or one of `sakunaVmahoraga.mp4`, `uzuiVgyu.mp4`, `gokuVjiren.mp4` in `/sdcard/Movies`), muted, after 10 minutes idle; sleep stays at 20 minutes |
 | - | - | Developer options > "Stay awake" switched off (it was on, and kept the screensaver from ever starting). The Streamer now goes to standby after 20 idle minutes |
 | - | `work/theme-home/` | Home wallpaper: the blue flower picture at night, the green one by day, dimmed 30%; hold OK on a tile to move it |
 | - | - | Private DNS: `dns.adguard-dns.com` (ad and tracker blocking) |
@@ -128,8 +128,8 @@ the screensaver. Ready-made themes are under `themes/` (each has a `screenshot.j
 `bash tools/theme.sh themes/<name>`. `bash tools/theme.sh --reset` goes back to plain black. The keys are
 described in `themes/README.md`.
 
-Screensaver delay: `tools/venv/Scripts/python.exe tools/tv.py "settings put system screen_off_timeout 300000"`
-(milliseconds: 300000 is the current 5 minutes, 600000 the original 10), or Settings > System > Energy.
+Screensaver delay: `tools/venv/Scripts/python.exe tools/tv.py "settings put system screen_off_timeout 600000"`
+(milliseconds: 600000 is the current 10 minutes), or Settings > System > Energy.
 
 ## Change the screensaver video
 

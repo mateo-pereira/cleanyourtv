@@ -95,11 +95,11 @@ The launcher plays the videos itself (`VideoDream`, `mateo-tv` code); Aerial Vie
       (every video in a random order, the default), or one video (played on a loop). The current choice has a check.
 - [ ] The screensaver is muted, fills the screen (centre-cropped) and shows a small clock bottom left.
 - [ ] Check: pick a video, set `screen_off_timeout` to 30000 for a moment, wait, and `dumpsys dreams | grep mCurrentDream`
-      names `VideoDream`; set it back to 300000.
+      names `VideoDream`; set it back to 600000.
 
 ## 6. Screensaver timing
 
-- [ ] Start the screensaver after **5 minutes** idle: `settings put system screen_off_timeout 300000`.
+- [ ] Start the screensaver after **10 minutes** idle: `settings put system screen_off_timeout 600000`.
 - [ ] Turn **Stay awake** off: `settings put global stay_on_while_plugged_in 0`. It was on, and it stops Android
       from ever starting the screensaver. Side effect accepted: the TV goes to standby after the sleep timer
       (20 minutes on the Streamer, Settings > System > Energy).
